@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.zos binary
+*.zar binary
+*.zda binary

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61,<76"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "optical-seed-optimizer"
+version = "0.1.0"
+description = "Reproducible staged optimization of an optical Seed into a reviewable design package."
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "OpticalSeedOptimizer contributors" }]
+dependencies = ["PyYAML>=6.0,<7"]
+keywords = ["optical-design", "lens-optimization", "zemax", "zos-api"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4,<9"]
+zosapi = ["pythonnet==2.5.2; python_version < '3.9' and platform_system == 'Windows'"]
+
+[project.scripts]
+seedopt = "optical_seed_optimizer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

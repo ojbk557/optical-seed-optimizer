@@ -1,0 +1,54 @@
+name: large_aperture_60mm
+
+target:
+  conjugate: infinity
+  focal_length_mm: 170.14
+  f_number: 1.547
+  field_type: angle
+  fields_deg:
+    - [0.0, 0.0]
+    - [5.0, 0.0]
+    - [0.0, 5.0]
+    - [5.0, 5.0]
+    - [10.0, 0.0]
+    - [0.0, 10.0]
+    - [10.0, 10.0]
+  image_width_mm: 60.0
+  image_height_mm: 60.0
+  image_surface_semi_diameter_mm: 43.5
+  wavelengths_nm: [450.0, 500.0, 587.6, 650.0, 700.0, 800.0]
+  primary_wavelength_nm: 587.6
+
+analysis:
+  mtf_frequency_lpmm: 50.0
+  minimum_mtf: 0.30
+  efl_tolerance_percent: 0.50
+  spot_reference: centroid
+
+constraints:
+  minimum_air_gap_mm: 0.50
+  maximum_air_gap_mm: 1000.0
+  minimum_glass_center_mm: 3.0
+  maximum_glass_center_mm: 40.0
+  minimum_glass_edge_mm: 3.0
+  maximum_distortion_percent: null
+
+optimization:
+  scale_to_target_focal_length: true
+  quick_focus_before_optimization: true
+  merit_function: rms_spot
+  pupil_rings: 3
+  cores: 8
+  efl_weight: 10.0
+  stages:
+    - name: radii_and_air
+      radii: true
+      air_gaps: true
+      glass_thicknesses: false
+      cycles: automatic
+    - name: radii_all_thicknesses
+      radii: true
+      air_gaps: true
+      glass_thicknesses: true
+      cycles: automatic
+      hammer_seconds: 30

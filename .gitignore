@@ -1,0 +1,16 @@
+.venv/
+.venv-zosapi/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+runs/
+
+# Never publish user/company optical designs or credentials.
+*.zos
+*.zar
+*.zda
+.env
+*.secrets.toml
