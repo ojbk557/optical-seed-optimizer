@@ -1,10 +1,9 @@
 import json
-import shutil
 from pathlib import Path
 from typing import Any, Dict
 
-from .base import OptimizationBackend
 from ..models import BackendResult, MetricSnapshot, ProjectConfig
+from .base import OptimizationBackend
 
 
 class MockBackend(OptimizationBackend):

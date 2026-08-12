@@ -36,3 +36,13 @@ def test_acceptance_requires_efl_tolerance_and_accepts_quality_progress():
     assert not is_acceptable_progress(
         previous, replace(improved, efl_error_percent=1.0), config
     )
+
+
+def test_acceptance_rejects_non_physical_metric_values():
+    config = load_config("configs/large_aperture_60mm.yaml")
+    previous = _snapshot()
+    invalid = _snapshot(worst_rms_spot_um=-1.0)
+
+    assert not invalid.feasible
+    assert not invalid.metrics_valid
+    assert not is_acceptable_progress(previous, invalid, config)

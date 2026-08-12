@@ -7,7 +7,6 @@ import winreg
 
 import clr
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument("design")
 args = parser.parse_args()

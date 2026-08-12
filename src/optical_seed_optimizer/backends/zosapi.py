@@ -7,15 +7,13 @@ mock backend remain importable on Linux/macOS and modern Python CI.
 import csv
 import math
 import os
-import shutil
 import time
-import winreg
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from .base import OptimizationBackend
 from ..models import BackendResult, MetricSnapshot, ProjectConfig, StageSpec
 from ..quality import is_acceptable_progress
+from .base import OptimizationBackend
 
 
 class ZosApiError(RuntimeError):
@@ -30,6 +28,8 @@ class ZosApiApplication:
         self.system = None
 
     def __enter__(self):
+        import winreg
+
         import clr
 
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Zemax") as key:
@@ -57,7 +57,9 @@ class ZosApiApplication:
             raise ZosApiError("Unable to create ZOS-API standalone application")
         if not self.application.IsValidLicenseForAPI:
             status = str(self.application.LicenseStatus)
-            raise ZosApiError("OpticStudio license is not valid for API use: %s" % status)
+            raise ZosApiError(
+                "OpticStudio license is not valid for API use: %s" % status
+            )
         self.system = self.application.PrimarySystem
         if self.system is None:
             raise ZosApiError("ZOS-API did not provide a primary optical system")
@@ -152,9 +154,7 @@ class ZosApiBackend(OptimizationBackend):
                         "Elapsed: %.3f s" % elapsed,
                     ]
                 )
-                if is_acceptable_progress(
-                    accepted_snapshot, local_snapshot, config
-                ):
+                if is_acceptable_progress(accepted_snapshot, local_snapshot, config):
                     local_snapshot.notes.append("Stage accepted by physical guardrail.")
                     snapshots.append(local_snapshot)
                     accepted_snapshot = local_snapshot
@@ -232,15 +232,15 @@ class ZosApiBackend(OptimizationBackend):
                 system, ZOSAPI, analysis_dir, warnings
             )
 
-        final = snapshots[-1]
+        final = accepted_snapshot
+        expected_exports = {"surface_table", "spot_table", "mtf_curves", "ray_fan"}
         qualification_checks = {
             "analyses_valid": final.feasible,
             "efl_tolerance": (
                 final.efl_error_percent <= config.analysis.efl_tolerance_percent
             ),
-            "mtf_target": (
-                final.worst_mtf_at_target >= config.analysis.minimum_mtf
-            ),
+            "mtf_target": (final.worst_mtf_at_target >= config.analysis.minimum_mtf),
+            "analysis_exports": expected_exports.issubset(analysis_artifacts),
         }
         status = "qualified" if all(qualification_checks.values()) else "rejected"
         if status == "rejected":
@@ -539,7 +539,9 @@ class ZosApiBackend(OptimizationBackend):
 
     @staticmethod
     def _export_spot_table(system, ZOSAPI, path: Path) -> None:
-        analysis = system.Analyses.New_Analysis(ZOSAPI.Analysis.AnalysisIDM.StandardSpot)
+        analysis = system.Analyses.New_Analysis(
+            ZOSAPI.Analysis.AnalysisIDM.StandardSpot
+        )
         try:
             settings = analysis.GetSettings()
             settings.Field.SetFieldNumber(0)
@@ -631,7 +633,9 @@ class ZosApiBackend(OptimizationBackend):
 
     @staticmethod
     def _worst_rms_spot(system, ZOSAPI) -> float:
-        analysis = system.Analyses.New_Analysis(ZOSAPI.Analysis.AnalysisIDM.StandardSpot)
+        analysis = system.Analyses.New_Analysis(
+            ZOSAPI.Analysis.AnalysisIDM.StandardSpot
+        )
         try:
             settings = analysis.GetSettings()
             settings.Field.SetFieldNumber(0)
@@ -646,15 +650,16 @@ class ZosApiBackend(OptimizationBackend):
                 ):
                     values.append(
                         float(
-                            results.SpotData.GetRMSSpotSizeFor(
-                                field_index, wave_index
-                            )
+                            results.SpotData.GetRMSSpotSizeFor(field_index, wave_index)
                         )
                     )
-            finite = [value for value in values if math.isfinite(value)]
-            if not finite:
-                raise ZosApiError("spot analysis returned no finite values")
-            return max(finite)
+            if not values:
+                raise ZosApiError("spot analysis returned no values")
+            if any(not math.isfinite(value) or value < 0 for value in values):
+                raise ZosApiError(
+                    "spot analysis returned a non-finite or negative field/wavelength value"
+                )
+            return max(values)
         finally:
             analysis.Close()
 
@@ -678,7 +683,7 @@ class ZosApiBackend(OptimizationBackend):
                 series = results.GetDataSeries(series_index)
                 x_values = [float(value) for value in series.XData.Data]
                 if not x_values:
-                    continue
+                    raise ZosApiError("FFT MTF returned a series without frequencies")
                 target_index = min(
                     range(len(x_values)),
                     key=lambda index: abs(x_values[index] - frequency),
@@ -687,9 +692,19 @@ class ZosApiBackend(OptimizationBackend):
                 curves = self._reshape_net(
                     y_raw, y_raw.GetLength(0), y_raw.GetLength(1)
                 )
+                if not curves:
+                    raise ZosApiError("FFT MTF returned a series without curves")
                 for curve in curves:
-                    if target_index < len(curve) and math.isfinite(curve[target_index]):
-                        values.append(curve[target_index])
+                    if target_index >= len(curve):
+                        raise ZosApiError(
+                            "FFT MTF curve does not cover the target frequency"
+                        )
+                    value = curve[target_index]
+                    if not math.isfinite(value) or not 0 <= value <= 1:
+                        raise ZosApiError(
+                            "FFT MTF returned a non-finite or out-of-range curve value"
+                        )
+                    values.append(value)
             if not values:
                 raise ZosApiError("FFT MTF returned no finite values")
             return min(values)

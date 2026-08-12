@@ -7,7 +7,9 @@ def is_acceptable_progress(
     config: ProjectConfig,
 ) -> bool:
     """Require hard validity plus non-regressing physical image quality."""
-    if not candidate.feasible:
+    if not candidate.feasible or not candidate.metrics_valid:
+        return False
+    if not previous.feasible or not previous.metrics_valid:
         return False
     if candidate.efl_error_percent > config.analysis.efl_tolerance_percent:
         return False

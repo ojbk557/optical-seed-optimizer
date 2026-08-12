@@ -76,7 +76,7 @@ See [docs/zosapi-setup.md](docs/zosapi-setup.md) for setup and evidence boundari
 Each run creates an isolated directory:
 
 ```text
-runs/<target>_<timestamp>/
+runs/<target>_<timestamp>_<nonce>/
 ├── input/                 # immutable Seed copy
 ├── stages/                # configured, checkpoint, accepted/rollback .zos files
 ├── final/final_design.zos
@@ -96,6 +96,8 @@ runs/<target>_<timestamp>/
 ## Reference target
 
 `configs/large_aperture_60mm.yaml` is an ambitious integration example: 170.14 mm EFL, F/1.547, a 20° x 20° rectangular field, 60 mm square image, 450–800 nm, and MTF evaluation at 50 lp/mm. It is a software test specification, not a claim that the included public Seed meets those requirements.
+
+V0.1 accepts infinity conjugates and centroid-referenced spot analysis only. Project and stage names must be safe single path components. `maximum_distortion_percent` must remain `null`; a non-null value is rejected until a distortion analysis and qualification check are implemented, rather than being silently ignored.
 
 ## Development
 

@@ -18,7 +18,7 @@ A successful doctor confirms that the application can be created and the license
 
 ## Result meanings
 
-- `qualified`: analyses completed, EFL is within the configured tolerance, and the final worst MTF reaches the configured target.
+- `qualified`: analyses completed with finite values at every returned field/curve, all analysis tables exported, EFL is within the configured tolerance, and the final worst MTF reaches the configured target.
 - `rejected`: the run completed but at least one acceptance requirement was not met. The artifacts remain useful for diagnosis and Seed comparison.
 - `mock-only`: orchestration test; never physical evidence.
 
@@ -30,3 +30,4 @@ The optimizer also compares each candidate stage with the last accepted state. A
 - Every stage operates on the run copy.
 - Private `.zos`, `.zar`, and run outputs are ignored by Git.
 - Final qualification still does not replace tolerancing, thermal analysis, stray-light analysis, coating design, mechanical checks, or a design review by an optical engineer.
+- V0.1 supports infinity conjugates and centroid-referenced spot analysis. A non-null distortion limit is rejected until distortion analysis is implemented.
