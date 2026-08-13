@@ -4,6 +4,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
+from uuid import uuid4
 
 from .backends.base import OptimizationBackend
 from .models import BackendResult, ProjectConfig
@@ -28,8 +29,12 @@ def run_optimization(
     if not seed_path.is_file():
         raise FileNotFoundError("seed does not exist: %s" % seed_path)
 
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_dir = output_root.resolve() / ("%s_%s" % (config.name, timestamp))
+    output_root = output_root.resolve()
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+    run_id = "%s_%s_%s" % (config.name, timestamp, uuid4().hex[:8])
+    run_dir = (output_root / run_id).resolve()
+    if run_dir.parent != output_root:
+        raise ValueError("resolved run directory must remain inside output_root")
     if seed_path == run_dir or run_dir in seed_path.parents:
         raise ValueError("output directory cannot contain the source Seed")
 
@@ -52,6 +57,8 @@ def run_optimization(
     )
 
     result: BackendResult = backend.run(copied_seed, config, run_dir)
+    if not result.snapshots:
+        raise ValueError("backend returned no metric snapshots")
     result_path = run_dir / "result.json"
     result_path.write_text(
         json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"

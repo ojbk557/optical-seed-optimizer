@@ -35,12 +35,19 @@ def write_html_report(
         if result.backend == "zosapi"
         else "Mock CI run - not physical evidence"
     )
-    status_class = "qualified" if result.status == "qualified" else "rejected"
+    status_class = (
+        "qualified" if result.status == "v0.1-qualified" else "rejected"
+    )
     warnings = " ".join(result.warnings) or "No runtime warnings."
     checks = " ".join(
         "%s=%s" % (key, "PASS" if value else "FAIL")
         for key, value in result.qualification_checks.items()
     )
+    unsupported = result.qualification_scope.get("unsupported_requirements", {})
+    unsupported_text = (
+        ", ".join(sorted(unsupported)) if unsupported else "None requested."
+    )
+    scope_name = str(result.qualification_scope.get("name", "unspecified"))
     html = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{name} - OpticalSeedOptimizer</title>
@@ -59,7 +66,7 @@ p{{color:var(--muted)}}.badge{{display:inline-block;padding:6px 10px;border:1px 
 <h1>{name}</h1><p>Seed-to-final staged optimization report. The source Seed was never overwritten.</p>
 <div class="grid"><div><strong>{efl:.2f} mm</strong><span>target EFL</span></div><div><strong>F/{fno:.3f}</strong><span>target aperture</span></div><div><strong>{mtf:.4f}</strong><span>final worst MTF @ {frequency:g} lp/mm</span></div><div><strong>{drop:.1f}%</strong><span>merit reduction</span></div></div>
 <div class="table"><table><thead><tr><th>Stage</th><th>Merit</th><th>Actual EFL</th><th>EFL error</th><th>Worst RMS spot</th><th>Worst MTF</th><th>Acceptance</th></tr></thead><tbody>{rows}</tbody></table></div>
-<div class="warning"><strong>Acceptance checks:</strong> {checks}<br><strong>Evidence boundary:</strong> {warning}</div>
+  <div class="warning"><strong>Qualification scope:</strong> {scope_name}. A V0.1 result is not a complete UV-lens qualification.<br><strong>Acceptance checks:</strong> {checks}<br><strong>Unsupported requested requirements:</strong> {unsupported}<br><strong>Evidence boundary:</strong> {warning}</div>
 <p>Final artifact: <code>{artifact}</code></p>
 </main></body></html>""".format(
         name=escape(config.name),
@@ -73,6 +80,8 @@ p{{color:var(--muted)}}.badge{{display:inline-block;padding:6px 10px;border:1px 
         drop=merit_drop,
         rows="".join(rows),
         checks=escape(checks),
+        scope_name=escape(scope_name),
+        unsupported=escape(unsupported_text),
         warning=escape(warnings),
         artifact=escape(result.final_design_path),
     )

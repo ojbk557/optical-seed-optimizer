@@ -7,7 +7,6 @@ import winreg
 import clr
 from System import AppDomain, Enum
 
-
 with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Zemax") as key:
     zemax_root = winreg.QueryValueEx(key, "ZemaxRoot")[0]
 

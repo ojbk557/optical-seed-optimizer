@@ -1,10 +1,10 @@
 import json
-import shutil
 from pathlib import Path
 from typing import Any, Dict
 
-from .base import OptimizationBackend
 from ..models import BackendResult, MetricSnapshot, ProjectConfig
+from ..quality import build_qualification_scope
+from .base import OptimizationBackend
 
 
 class MockBackend(OptimizationBackend):
@@ -76,17 +76,21 @@ class MockBackend(OptimizationBackend):
         final_payload["final_metrics"] = snapshots[-1].to_dict()
         final_path.write_text(json.dumps(final_payload, indent=2), encoding="utf-8")
 
+        mock_checks = {
+            "physical_backend": False,
+            "mtf_target": snapshots[-1].worst_mtf_at_target
+            >= config.analysis.minimum_mtf,
+            "efl_tolerance": True,
+        }
+        qualification_scope = build_qualification_scope(config, mock_checks)
+        qualification_scope["evidence"] = "synthetic-mock"
         return BackendResult(
             backend=self.name,
             final_design_path=str(final_path),
             snapshots=snapshots,
             artifacts={"final_design": str(final_path)},
             status="mock-only",
-            qualification_checks={
-                "physical_backend": False,
-                "mtf_target": snapshots[-1].worst_mtf_at_target
-                >= config.analysis.minimum_mtf,
-                "efl_tolerance": True,
-            },
+            qualification_checks=mock_checks,
+            qualification_scope=qualification_scope,
             warnings=["Mock backend output is not a Zemax or manufacturing result."],
         )
