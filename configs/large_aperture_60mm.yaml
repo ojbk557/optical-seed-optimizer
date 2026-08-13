@@ -32,6 +32,8 @@ constraints:
   maximum_glass_center_mm: 40.0
   minimum_glass_edge_mm: 3.0
   maximum_distortion_percent: null
+  minimum_relative_illumination_percent: null
+  minimum_entrance_pupil_diameter_mm: null
 
 optimization:
   scale_to_target_focal_length: true

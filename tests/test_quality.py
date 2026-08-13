@@ -2,7 +2,10 @@ from dataclasses import replace
 
 from optical_seed_optimizer.config import load_config
 from optical_seed_optimizer.models import MetricSnapshot
-from optical_seed_optimizer.quality import is_acceptable_progress
+from optical_seed_optimizer.quality import (
+    is_acceptable_progress,
+    physical_qualification_status,
+)
 
 
 def _snapshot(**overrides):
@@ -46,3 +49,10 @@ def test_acceptance_rejects_non_physical_metric_values():
     assert not invalid.feasible
     assert not invalid.metrics_valid
     assert not is_acceptable_progress(previous, invalid, config)
+
+
+def test_status_names_the_limited_v01_scope():
+    config = load_config("configs/large_aperture_60mm.yaml")
+    assert physical_qualification_status(config, {"mtf_target": True}) == (
+        "v0.1-qualified"
+    )

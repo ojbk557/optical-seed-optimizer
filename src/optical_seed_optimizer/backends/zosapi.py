@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from ..models import BackendResult, MetricSnapshot, ProjectConfig, StageSpec
-from ..quality import is_acceptable_progress
+from ..quality import (
+    build_qualification_scope,
+    is_acceptable_progress,
+    physical_qualification_status,
+    unsupported_qualification_requirements,
+)
 from .base import OptimizationBackend
 
 
@@ -242,8 +247,16 @@ class ZosApiBackend(OptimizationBackend):
             "mtf_target": (final.worst_mtf_at_target >= config.analysis.minimum_mtf),
             "analysis_exports": expected_exports.issubset(analysis_artifacts),
         }
-        status = "qualified" if all(qualification_checks.values()) else "rejected"
-        if status == "rejected":
+        status = physical_qualification_status(config, qualification_checks)
+        qualification_scope = build_qualification_scope(config, qualification_checks)
+        unsupported = unsupported_qualification_requirements(config)
+        if unsupported:
+            warnings.append(
+                "Complete target qualification is unavailable because requested "
+                "requirements are unsupported: %s."
+                % ", ".join(sorted(unsupported))
+            )
+        elif status == "rejected":
             warnings.append(
                 "Final design is retained for review but did not meet every acceptance check."
             )
@@ -262,6 +275,7 @@ class ZosApiBackend(OptimizationBackend):
             artifacts=artifacts,
             status=status,
             qualification_checks=qualification_checks,
+            qualification_scope=qualification_scope,
             warnings=warnings,
         )
 
@@ -304,7 +318,12 @@ class ZosApiBackend(OptimizationBackend):
 
         data.Fields.DeleteAllFields()
         data.Fields.SetFieldType(ZOSAPI.SystemData.FieldType.Angle)
-        for x_deg, y_deg in config.target.fields_deg:
+        first_x, first_y = config.target.fields_deg[0]
+        first_field = data.Fields.GetField(1)
+        first_field.X = first_x
+        first_field.Y = first_y
+        first_field.Weight = 1.0
+        for x_deg, y_deg in config.target.fields_deg[1:]:
             data.Fields.AddField(x_deg, y_deg, 1.0)
 
         while data.Wavelengths.NumberOfWavelengths > 0:
@@ -684,10 +703,30 @@ class ZosApiBackend(OptimizationBackend):
                 x_values = [float(value) for value in series.XData.Data]
                 if not x_values:
                     raise ZosApiError("FFT MTF returned a series without frequencies")
-                target_index = min(
-                    range(len(x_values)),
-                    key=lambda index: abs(x_values[index] - frequency),
+                if any(
+                    not math.isfinite(value) for value in x_values
+                ) or any(
+                    right <= left for left, right in zip(x_values, x_values[1:])
+                ):
+                    raise ZosApiError(
+                        "FFT MTF returned non-finite or non-increasing frequencies"
+                    )
+                tolerance = max(1e-9, abs(frequency) * 1e-9)
+                if frequency < x_values[0] - tolerance or frequency > x_values[-1] + tolerance:
+                    raise ZosApiError(
+                        "FFT MTF frequency range %.6g..%.6g lp/mm does not cover "
+                        "the target %.6g lp/mm"
+                        % (x_values[0], x_values[-1], frequency)
+                    )
+                upper_index = next(
+                    (
+                        index
+                        for index, value in enumerate(x_values)
+                        if value >= frequency - tolerance
+                    ),
+                    len(x_values) - 1,
                 )
+                lower_index = max(0, upper_index - 1)
                 y_raw = series.YData.Data
                 curves = self._reshape_net(
                     y_raw, y_raw.GetLength(0), y_raw.GetLength(1)
@@ -695,11 +734,21 @@ class ZosApiBackend(OptimizationBackend):
                 if not curves:
                     raise ZosApiError("FFT MTF returned a series without curves")
                 for curve in curves:
-                    if target_index >= len(curve):
+                    if upper_index >= len(curve):
                         raise ZosApiError(
                             "FFT MTF curve does not cover the target frequency"
                         )
-                    value = curve[target_index]
+                    if lower_index == upper_index:
+                        value = curve[upper_index]
+                    else:
+                        lower_frequency = x_values[lower_index]
+                        upper_frequency = x_values[upper_index]
+                        fraction = (frequency - lower_frequency) / (
+                            upper_frequency - lower_frequency
+                        )
+                        value = curve[lower_index] + fraction * (
+                            curve[upper_index] - curve[lower_index]
+                        )
                     if not math.isfinite(value) or not 0 <= value <= 1:
                         raise ZosApiError(
                             "FFT MTF returned a non-finite or out-of-range curve value"

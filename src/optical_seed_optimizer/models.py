@@ -106,6 +106,8 @@ class ConstraintSpec:
     maximum_glass_center_mm: float
     minimum_glass_edge_mm: float
     maximum_distortion_percent: Optional[float] = None
+    minimum_relative_illumination_percent: Optional[float] = None
+    minimum_entrance_pupil_diameter_mm: Optional[float] = None
 
     def __post_init__(self) -> None:
         _non_negative("minimum_air_gap_mm", self.minimum_air_gap_mm)
@@ -121,8 +123,19 @@ class ConstraintSpec:
             )
         if self.maximum_distortion_percent is not None:
             _non_negative("maximum_distortion_percent", self.maximum_distortion_percent)
-            raise ValueError(
-                "maximum_distortion_percent is not implemented by the V0.1 backend"
+        if self.minimum_relative_illumination_percent is not None:
+            illumination = _non_negative(
+                "minimum_relative_illumination_percent",
+                self.minimum_relative_illumination_percent,
+            )
+            if illumination > 100:
+                raise ValueError(
+                    "minimum_relative_illumination_percent cannot exceed 100"
+                )
+        if self.minimum_entrance_pupil_diameter_mm is not None:
+            _positive(
+                "minimum_entrance_pupil_diameter_mm",
+                self.minimum_entrance_pupil_diameter_mm,
             )
 
 
@@ -225,6 +238,7 @@ class BackendResult:
     artifacts: Mapping[str, str]
     status: str = "unqualified"
     qualification_checks: Mapping[str, bool] = field(default_factory=dict)
+    qualification_scope: Mapping[str, Any] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -235,5 +249,6 @@ class BackendResult:
             "artifacts": dict(self.artifacts),
             "status": self.status,
             "qualification_checks": dict(self.qualification_checks),
+            "qualification_scope": dict(self.qualification_scope),
             "warnings": list(self.warnings),
         }

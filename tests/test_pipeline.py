@@ -19,6 +19,10 @@ def test_mock_pipeline_is_reproducible_and_preserves_seed(tmp_path: Path):
     assert source.read_bytes() == original
     result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
     assert result["backend"] == "mock"
+    assert result["status"] == "mock-only"
+    assert result["qualification_scope"]["name"] == "v0.1-core"
+    assert not result["qualification_scope"]["complete_target_qualification"]
+    assert result["qualification_scope"]["evidence"] == "synthetic-mock"
     assert len(result["snapshots"]) == 3
     assert (
         result["snapshots"][-1]["merit_function"]

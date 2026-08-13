@@ -85,6 +85,8 @@ def load_config(path: str) -> ProjectConfig:
             "maximum_glass_center_mm",
             "minimum_glass_edge_mm",
             "maximum_distortion_percent",
+            "minimum_relative_illumination_percent",
+            "minimum_entrance_pupil_diameter_mm",
         },
         "constraints",
     )
@@ -134,6 +136,16 @@ def load_config(path: str) -> ProjectConfig:
         maximum_distortion_percent=(
             float(constraints_raw["maximum_distortion_percent"])
             if constraints_raw.get("maximum_distortion_percent") is not None
+            else None
+        ),
+        minimum_relative_illumination_percent=(
+            float(constraints_raw["minimum_relative_illumination_percent"])
+            if constraints_raw.get("minimum_relative_illumination_percent") is not None
+            else None
+        ),
+        minimum_entrance_pupil_diameter_mm=(
+            float(constraints_raw["minimum_entrance_pupil_diameter_mm"])
+            if constraints_raw.get("minimum_entrance_pupil_diameter_mm") is not None
             else None
         ),
     )

@@ -15,7 +15,7 @@ The companion [OpticalSeedRanker](https://github.com/ojbk557/optical-seed-ranker
 - Scale Lens, target F/#/field/wavelength setup, Quick Focus, RMS Spot merit generation, local optimization, and optional Hammer optimization.
 - A hard EFL constraint, physical-quality guardrails, and automatic checkpoint rollback when a lower numerical merit produces a worse optical design.
 - Stage `.zos` files, SHA-256 provenance, Spot/FFT MTF/Ray Fan CSV exports, surface tables, JSON results, and an HTML report.
-- Explicit `qualified` or `rejected` status. A completed run is not automatically a passing lens.
+- Explicit `v0.1-qualified`, `unqualified`, `rejected`, or `mock-only` status. A completed run is not automatically a passing lens.
 
 ## Architecture
 
@@ -60,6 +60,7 @@ The ZOS-API backend requires Windows, an installed/licensed OpticStudio, and the
 py -3.8 -m venv .venv-zosapi
 .\.venv-zosapi\Scripts\Activate.ps1
 python -m pip install -r requirements-zosapi.txt
+python -m pip install -e .
 
 seedopt doctor --backend zosapi
 seedopt run `
@@ -97,7 +98,9 @@ runs/<target>_<timestamp>_<nonce>/
 
 `configs/large_aperture_60mm.yaml` is an ambitious integration example: 170.14 mm EFL, F/1.547, a 20° x 20° rectangular field, 60 mm square image, 450–800 nm, and MTF evaluation at 50 lp/mm. It is a software test specification, not a claim that the included public Seed meets those requirements.
 
-V0.1 accepts infinity conjugates and centroid-referenced spot analysis only. Project and stage names must be safe single path components. `maximum_distortion_percent` must remain `null`; a non-null value is rejected until a distortion analysis and qualification check are implemented, rather than being silently ignored.
+V0.1 accepts infinity conjugates and centroid-referenced spot analysis only. Project and stage names must be safe single path components. Its physical qualification scope evaluates finite analyses, EFL tolerance, target-frequency FFT MTF, and required analysis exports. `v0.1-qualified` means only that this limited scope passed; it is not a complete UV-lens qualification.
+
+Distortion, relative illumination, and entrance-pupil diameter can be declared in the YAML constraints. V0.1 records them as structured `unsupported_requirements` and returns `unqualified` even when all implemented checks pass. This prevents an unimplemented requirement from being silently ignored or presented as a complete pass.
 
 ## Development
 
