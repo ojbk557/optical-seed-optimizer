@@ -37,14 +37,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list] = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     backend = _backend(args.backend)
     if args.command == "doctor":
         status = backend.doctor()
         print(json.dumps(status, ensure_ascii=False, indent=2))
         return 0 if status.get("available") else 2
 
-    config = load_config(str(args.config))
-    run_dir = run_optimization(args.seed, config, backend, args.output_root)
+    try:
+        config = load_config(str(args.config))
+        run_dir = run_optimization(args.seed, config, backend, args.output_root)
+    except (KeyError, OSError, UnicodeError, ValueError) as error:
+        parser.error(str(error))
     print("Completed run -> %s" % run_dir)
     return 0

@@ -1,4 +1,5 @@
 import json
+from math import isfinite
 from pathlib import Path
 from typing import Any, Dict
 
@@ -23,27 +24,63 @@ class MockBackend(OptimizationBackend):
     def run(
         self, seed_path: Path, config: ProjectConfig, run_dir: Path
     ) -> BackendResult:
-        with seed_path.open("r", encoding="utf-8") as handle:
-            seed = json.load(handle)
+        if seed_path.suffix.lower() != ".json":
+            raise ValueError(
+                "mock backend requires a UTF-8 JSON fixture with synthetic baseline "
+                "metrics; use the zosapi backend for .zmx or .zos seeds"
+            )
+        try:
+            with seed_path.open("r", encoding="utf-8") as handle:
+                seed = json.load(handle)
+        except (UnicodeError, json.JSONDecodeError) as error:
+            raise ValueError(
+                "mock backend requires a valid UTF-8 JSON fixture"
+            ) from error
+        if not isinstance(seed, dict) or not isinstance(seed.get("baseline"), dict):
+            raise ValueError("mock JSON fixture must contain a baseline object")
+
         baseline = seed["baseline"]
+        required_metrics = (
+            "merit_function",
+            "worst_rms_spot_um",
+            "worst_mtf_at_target",
+        )
+        missing = [name for name in required_metrics if name not in baseline]
+        if missing:
+            raise ValueError(
+                "mock baseline is missing required metrics: %s" % ", ".join(missing)
+            )
+        try:
+            merit = float(baseline["merit_function"])
+            spot = float(baseline["worst_rms_spot_um"])
+            mtf = float(baseline["worst_mtf_at_target"])
+        except (TypeError, ValueError) as error:
+            raise ValueError("mock baseline metrics must be numeric") from error
+        if (
+            not isfinite(merit)
+            or merit < 0
+            or not isfinite(spot)
+            or spot < 0
+            or not isfinite(mtf)
+            or not 0 <= mtf <= 1
+        ):
+            raise ValueError(
+                "mock baseline requires finite non-negative merit/spot metrics "
+                "and MTF between 0 and 1"
+            )
+
         snapshots = [
             MetricSnapshot(
                 label="baseline",
-                merit_function=float(baseline["merit_function"]),
-                worst_rms_spot_um=float(baseline["worst_rms_spot_um"]),
-                worst_mtf_at_target=float(baseline["worst_mtf_at_target"]),
+                merit_function=merit,
+                worst_rms_spot_um=spot,
+                worst_mtf_at_target=mtf,
                 effective_focal_length_mm=config.target.focal_length_mm,
                 efl_error_percent=0.0,
-                meets_requirements=(
-                    float(baseline["worst_mtf_at_target"])
-                    >= config.analysis.minimum_mtf
-                ),
+                meets_requirements=(mtf >= config.analysis.minimum_mtf),
                 notes=["Synthetic metrics: not a physical optical result."],
             )
         ]
-        merit = snapshots[0].merit_function
-        spot = snapshots[0].worst_rms_spot_um
-        mtf = snapshots[0].worst_mtf_at_target
 
         stage_dir = run_dir / "stages"
         final_dir = run_dir / "final"

@@ -38,6 +38,8 @@ final design + analysis tables + JSON/HTML report
 ## Quick start: framework and CI backend
 
 The mock backend validates orchestration only; its numbers are synthetic and must never be cited as optical evidence.
+It accepts a UTF-8 JSON fixture with an explicit `baseline` object, such as
+`examples/demo_seed.json`. Use the `zosapi` backend for `.zmx` and `.zos` files.
 
 ```powershell
 python -m venv .venv
