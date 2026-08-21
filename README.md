@@ -35,22 +35,44 @@ staged optimization -> physical guardrail -> accept or rollback
 final design + analysis tables + JSON/HTML report
 ```
 
-## Quick start: framework and CI backend
+## Install and run immediately
 
 The mock backend validates orchestration only; its numbers are synthetic and must never be cited as optical evidence.
+It accepts a UTF-8 JSON fixture with an explicit `baseline` object. Use the `zosapi` backend for `.zmx` and `.zos` files.
+
+Python 3.8 or newer is required. The project is distributed as a versioned GitHub Release wheel; it is not currently published to PyPI.
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-pytest
+python -m pip install "https://github.com/ojbk557/optical-seed-optimizer/releases/download/v0.1.0/optical_seed_optimizer-0.1.0-py3-none-any.whl"
+
+seedopt init-demo --output-dir seedopt-demo
+seedopt doctor --backend mock
 
 seedopt run `
   --backend mock `
-  --seed examples/demo_seed.json `
-  --config configs/large_aperture_60mm.yaml `
+  --seed seedopt-demo\demo_seed.json `
+  --config seedopt-demo\large_aperture_60mm.yaml `
+  --output-root seedopt-demo\runs
+```
+
+`seedopt init-demo` refuses to overwrite files unless `--force` is supplied. Verify the release wheel against `SHA256SUMS.txt` on the [v0.1.0 release page](https://github.com/ojbk557/optical-seed-optimizer/releases/tag/v0.1.0) when integrity matters.
+
+## Consume an OpticalSeedRanker result
+
+Ranker CSV output includes a `source_path`. Select a row by its one-based rank without copying that path by hand:
+
+```powershell
+seedopt run `
+  --backend zosapi `
+  --ranking-csv path\to\ranking.csv `
+  --rank 1 `
+  --config path\to\target.yaml `
   --output-root runs
 ```
+
+The chosen row must reference an accessible `.zmx` or `.zos` file for the ZOS-API backend. The mock backend accepts only its explicit JSON fixture format.
 
 ## Optional OpticStudio backend
 
@@ -59,8 +81,7 @@ The ZOS-API backend requires Windows, an installed/licensed OpticStudio, and the
 ```powershell
 py -3.8 -m venv .venv-zosapi
 .\.venv-zosapi\Scripts\Activate.ps1
-python -m pip install -r requirements-zosapi.txt
-python -m pip install -e .
+python -m pip install "optical-seed-optimizer[zosapi] @ https://github.com/ojbk557/optical-seed-optimizer/releases/download/v0.1.0/optical_seed_optimizer-0.1.0-py3-none-any.whl"
 
 seedopt doctor --backend zosapi
 seedopt run `
@@ -105,7 +126,10 @@ Distortion, relative illumination, and entrance-pupil diameter can be declared i
 ## Development
 
 ```powershell
+git clone https://github.com/ojbk557/optical-seed-optimizer.git
+cd optical-seed-optimizer
 python -m pip install -e ".[dev]"
+ruff check .
 pytest
 ```
 

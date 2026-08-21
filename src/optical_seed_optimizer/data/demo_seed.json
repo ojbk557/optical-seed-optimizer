@@ -1,0 +1,14 @@
+{
+  "name": "deterministic-double-gauss-demo",
+  "source": "synthetic packaged demo fixture",
+  "focal_length_mm": 100.0,
+  "f_number": 2.8,
+  "full_field_deg": 28.0,
+  "surface_count": 12,
+  "element_count": 6,
+  "baseline": {
+    "merit_function": 100.0,
+    "worst_rms_spot_um": 48.0,
+    "worst_mtf_at_target": 0.08
+  }
+}

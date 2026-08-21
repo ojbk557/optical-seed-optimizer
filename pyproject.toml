@@ -13,6 +13,11 @@ authors = [{ name = "OpticalSeedOptimizer contributors" }]
 dependencies = ["PyYAML>=6.0,<7"]
 keywords = ["optical-design", "lens-optimization", "zemax", "zos-api"]
 
+[project.urls]
+Homepage = "https://github.com/ojbk557/optical-seed-optimizer"
+Repository = "https://github.com/ojbk557/optical-seed-optimizer"
+Issues = "https://github.com/ojbk557/optical-seed-optimizer/issues"
+
 [project.optional-dependencies]
 dev = ["pytest>=7.4,<9", "ruff>=0.9,<1"]
 zosapi = ["pythonnet==2.5.2; python_version < '3.9' and platform_system == 'Windows'"]
@@ -22,6 +27,9 @@ seedopt = "optical_seed_optimizer.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+optical_seed_optimizer = ["data/*.json", "data/*.yaml"]
 
 [tool.pytest.ini_options]
 addopts = "-q"
