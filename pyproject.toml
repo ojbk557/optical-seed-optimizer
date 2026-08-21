@@ -19,7 +19,7 @@ Repository = "https://github.com/ojbk557/optical-seed-optimizer"
 Issues = "https://github.com/ojbk557/optical-seed-optimizer/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4,<9", "ruff>=0.9,<1"]
+dev = ["pytest>=7.4,<10", "ruff>=0.9,<1"]
 zosapi = ["pythonnet==2.5.2; python_version < '3.9' and platform_system == 'Windows'"]
 
 [project.scripts]
