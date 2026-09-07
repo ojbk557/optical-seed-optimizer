@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional
 
 from .backends.mock import MockBackend
+from .backends.zosapi import ZosApiError
 from .config import load_config
 from .pipeline import run_optimization
 
@@ -147,7 +148,7 @@ def main(argv: Optional[list] = None) -> int:
     backend = _backend(args.backend)
     if args.command == "doctor":
         status = backend.doctor()
-        print(json.dumps(status, ensure_ascii=False, indent=2))
+        print(json.dumps(status, ensure_ascii=False, indent=2, allow_nan=False))
         return 0 if status.get("available") else 2
 
     try:
@@ -159,7 +160,7 @@ def main(argv: Optional[list] = None) -> int:
             seed_path = args.seed
         config = load_config(str(args.config))
         run_dir = run_optimization(seed_path, config, backend, args.output_root)
-    except (KeyError, OSError, UnicodeError, ValueError) as error:
+    except (KeyError, OSError, UnicodeError, ValueError, ZosApiError) as error:
         parser.error(str(error))
     print("Completed run -> %s" % run_dir)
     return 0

@@ -53,7 +53,8 @@ def run_optimization(
         "config": config.to_dict(),
     }
     (run_dir / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(manifest, ensure_ascii=False, indent=2, allow_nan=False),
+        encoding="utf-8",
     )
 
     result: BackendResult = backend.run(copied_seed, config, run_dir)
@@ -61,12 +62,18 @@ def run_optimization(
         raise ValueError("backend returned no metric snapshots")
     result_path = run_dir / "result.json"
     result_path.write_text(
-        json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(
+            result.to_dict(), ensure_ascii=False, indent=2, allow_nan=False
+        ),
+        encoding="utf-8",
     )
     analysis_dir = run_dir / "analysis"
     analysis_dir.mkdir(parents=True, exist_ok=True)
     (analysis_dir / "summary.json").write_text(
-        json.dumps(result.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(
+            result.to_dict(), ensure_ascii=False, indent=2, allow_nan=False
+        ),
+        encoding="utf-8",
     )
     write_html_report(config, result, run_dir / "report.html")
     return run_dir

@@ -4,9 +4,30 @@ from pathlib import Path
 import pytest
 
 from optical_seed_optimizer.backends.mock import MockBackend
+from optical_seed_optimizer.backends.zosapi import ZosApiError
 from optical_seed_optimizer.cli import main
 from optical_seed_optimizer.config import load_config
+from optical_seed_optimizer.models import BackendResult, MetricSnapshot
 from optical_seed_optimizer.pipeline import run_optimization
+
+
+def test_cli_reports_seed_safety_rejection_without_traceback(monkeypatch, capsys):
+    def reject(*args):
+        raise ZosApiError("V0.1 accepts millimeter LensUnits only")
+
+    monkeypatch.setattr("optical_seed_optimizer.cli.run_optimization", reject)
+
+    with pytest.raises(SystemExit) as error:
+        main([
+            "run", "--backend", "zosapi", "--seed", "inch.zmx",
+            "--config", "configs/large_aperture_60mm.yaml",
+            "--output-root", "runs",
+        ])
+
+    assert error.value.code == 2
+    stderr = capsys.readouterr().err
+    assert "seedopt: error: V0.1 accepts millimeter LensUnits only" in stderr
+    assert "Traceback" not in stderr
 
 
 def test_mock_pipeline_is_reproducible_and_preserves_seed(tmp_path: Path):
@@ -33,6 +54,56 @@ def test_mock_pipeline_is_reproducible_and_preserves_seed(tmp_path: Path):
     )
     assert (run_dir / "report.html").is_file()
     assert Path(result["final_design_path"]).is_file()
+
+
+def test_analysis_failure_outputs_are_strict_json_with_structured_error(
+    tmp_path: Path,
+):
+    class FailedAnalysisBackend:
+        name = "failed-analysis"
+
+        def run(self, seed_path, config, run_dir):
+            del seed_path, config
+            return BackendResult(
+                backend=self.name,
+                final_design_path=str(run_dir / "final" / "failed.zos"),
+                snapshots=[
+                    MetricSnapshot(
+                        label="failed_spot",
+                        merit_function=1.0,
+                        worst_rms_spot_um=None,
+                        worst_mtf_at_target=0.2,
+                        effective_focal_length_mm=170.14,
+                        efl_error_percent=0.0,
+                        analysis_errors={
+                            "spot": {
+                                "error_type": "ZosApiError",
+                                "message": "spot unavailable",
+                            }
+                        },
+                    )
+                ],
+                artifacts={},
+                status="rejected",
+            )
+
+    source = tmp_path / "seed.zmx"
+    source.write_text("fixture", encoding="utf-8")
+    config = load_config("configs/large_aperture_60mm.yaml")
+
+    run_dir = run_optimization(
+        source, config, FailedAnalysisBackend(), tmp_path / "runs"
+    )
+
+    for path in (run_dir / "result.json", run_dir / "analysis" / "summary.json"):
+        text = path.read_text(encoding="utf-8")
+        payload = json.loads(text)
+        assert "Infinity" not in text
+        assert payload["snapshots"][0]["worst_rms_spot_um"] is None
+        assert payload["snapshots"][0]["analysis_errors"]["spot"] == {
+            "error_type": "ZosApiError",
+            "message": "spot unavailable",
+        }
 
 
 def test_back_to_back_runs_use_unique_directories_inside_output_root(tmp_path: Path):

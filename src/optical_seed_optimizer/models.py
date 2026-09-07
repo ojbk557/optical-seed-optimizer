@@ -197,7 +197,7 @@ class ProjectConfig:
 class MetricSnapshot:
     label: str
     merit_function: float
-    worst_rms_spot_um: float
+    worst_rms_spot_um: Optional[float]
     worst_mtf_at_target: float
     effective_focal_length_mm: float = 0.0
     efl_error_percent: float = float("inf")
@@ -205,12 +205,14 @@ class MetricSnapshot:
     meets_requirements: bool = False
     accepted: bool = True
     notes: List[str] = field(default_factory=list)
+    analysis_errors: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
     @property
     def metrics_valid(self) -> bool:
         return (
             isfinite(float(self.merit_function))
             and self.merit_function >= 0
+            and self.worst_rms_spot_um is not None
             and isfinite(float(self.worst_rms_spot_um))
             and self.worst_rms_spot_um >= 0
             and isfinite(float(self.worst_mtf_at_target))
@@ -227,7 +229,11 @@ class MetricSnapshot:
             self.accepted = False
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        for key, value in payload.items():
+            if isinstance(value, float) and not isfinite(value):
+                payload[key] = None
+        return payload
 
 
 @dataclass

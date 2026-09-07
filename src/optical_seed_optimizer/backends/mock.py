@@ -104,14 +104,17 @@ class MockBackend(OptimizationBackend):
             )
             snapshots.append(snapshot)
             (stage_dir / ("%02d_%s.json" % (index, stage.name))).write_text(
-                json.dumps(snapshot.to_dict(), indent=2), encoding="utf-8"
+                json.dumps(snapshot.to_dict(), indent=2, allow_nan=False),
+                encoding="utf-8",
             )
 
         final_path = final_dir / "final_design.mock.json"
         final_payload = dict(seed)
         final_payload["target"] = config.to_dict()["target"]
         final_payload["final_metrics"] = snapshots[-1].to_dict()
-        final_path.write_text(json.dumps(final_payload, indent=2), encoding="utf-8")
+        final_path.write_text(
+            json.dumps(final_payload, indent=2, allow_nan=False), encoding="utf-8"
+        )
 
         mock_checks = {
             "physical_backend": False,
