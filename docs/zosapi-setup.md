@@ -8,6 +8,8 @@
 
 For the locally tested OpticStudio 2024 R1 setup, the working combination was 64-bit Python 3.8.10 with Python.NET 2.5.2. Do not force a newer interpreter through a bridge merely to hide an unsupported runtime combination.
 
+V0.1 requires `SystemData.Units.LensUnits` to be Millimeters and fails before reading EFL when another unit is loaded. Convert a copy with OpticStudio's Scale Lens unit-conversion mode first. V0.1 also fails closed on dependent solves in every active Lens Data Editor column, including radius, thickness, glass, conic, and surface parameters; materialize/fix marginal-ray, F/#, pickup, macro, and similar solves before running. Built-in Automatic sizing is supported only for clear semi-diameter, chip zone, and mechanical semi-diameter. Plain Variable solves are fixed before target configuration and later released only according to the YAML stages.
+
 ## Check the connection
 
 ```powershell
@@ -25,6 +27,8 @@ A successful doctor confirms that the application can be created and the license
 
 The optimizer also compares each candidate stage with the last accepted state. A stage is rolled back if first-order power leaves tolerance or if Spot/MTF quality materially regresses, even when the numerical Merit Function decreases.
 
+Every checkpoint and the final delivered design are saved, immediately reloaded, and compared against the pre-save Lens Units, EFL, surface types, stop flags, and every active LDE cell's value and solve type. A mismatch stops the run. The HTML report separately shows absolute requirement status and the stage accept/reject decision, including rollback notes. This check covers active LDE cells; it is not exhaustive validation of every OpticStudio system feature or external asset.
+
 ## Safety
 
 - The source Seed is copied and hashed before OpticStudio opens it.
@@ -32,3 +36,4 @@ The optimizer also compares each candidate stage with the last accepted state. A
 - Private `.zos`, `.zar`, and run outputs are ignored by Git.
 - Final qualification still does not replace tolerancing, thermal analysis, stray-light analysis, coating design, mechanical checks, or a design review by an optical engineer.
 - V0.1 supports infinity conjugates and centroid-referenced spot analysis. Requested distortion, relative-illumination, and entrance-pupil constraints are preserved as structured unsupported requirements and force an `unqualified` result until their analyses are implemented.
+- Failed analyses use JSON `null` for unavailable numeric metrics and record an `analysis_errors` object. All JSON writers reject NaN/Infinity.

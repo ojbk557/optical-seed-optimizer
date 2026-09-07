@@ -1,5 +1,9 @@
 [build-system]
-requires = ["setuptools>=61,<76"]
+requires = [
+  "setuptools==75.3.2; python_version < '3.9'",
+  "setuptools==82.0.1; python_version >= '3.9' and python_version < '3.10'",
+  "setuptools==84.0.0; python_version >= '3.10'",
+]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -19,7 +23,12 @@ Repository = "https://github.com/ojbk557/optical-seed-optimizer"
 Issues = "https://github.com/ojbk557/optical-seed-optimizer/issues"
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4,<9", "ruff>=0.9,<1"]
+dev = [
+  "pytest==8.3.5; python_version < '3.9'",
+  "pytest==8.4.2; python_version >= '3.9' and python_version < '3.10'",
+  "pytest>=9.0.3,<10; python_version >= '3.10'",
+  "ruff>=0.9,<1",
+]
 zosapi = ["pythonnet==2.5.2; python_version < '3.9' and platform_system == 'Windows'"]
 
 [project.scripts]
@@ -32,7 +41,7 @@ where = ["src"]
 optical_seed_optimizer = ["data/*.json", "data/*.yaml"]
 
 [tool.pytest.ini_options]
-addopts = "-q"
+addopts = "-q --basetemp=.pytest-tmp"
 testpaths = ["tests"]
 
 [tool.ruff]

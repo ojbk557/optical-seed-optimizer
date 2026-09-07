@@ -1,7 +1,15 @@
 from html import escape
+from math import isfinite
 from pathlib import Path
+from typing import Optional
 
 from .models import BackendResult, ProjectConfig
+
+
+def _metric(value: Optional[float], digits: int, suffix: str = "") -> str:
+    if value is None or not isfinite(float(value)):
+        return "N/A"
+    return ("%.*f" % (digits, value)) + suffix
 
 
 def write_html_report(
@@ -10,23 +18,32 @@ def write_html_report(
     rows = []
     for snapshot in result.snapshots:
         requirement = "PASS" if snapshot.meets_requirements else "FAIL"
+        decision = "ACCEPTED" if snapshot.accepted else "REJECTED"
+        notes = "<br>".join(escape(note) for note in snapshot.notes) or "&mdash;"
         rows.append(
             "<tr>"
             "<td><strong>%s</strong></td>" % escape(snapshot.label)
-            + "<td>%.4f</td>" % snapshot.merit_function
-            + "<td>%.4f mm</td>" % snapshot.effective_focal_length_mm
-            + "<td>%.4f%%</td>" % snapshot.efl_error_percent
-            + "<td>%.3f &micro;m</td>" % snapshot.worst_rms_spot_um
-            + "<td>%.4f</td>" % snapshot.worst_mtf_at_target
+            + "<td>%s</td>" % _metric(snapshot.merit_function, 4)
+            + "<td>%s</td>" % _metric(snapshot.effective_focal_length_mm, 4, " mm")
+            + "<td>%s</td>" % _metric(snapshot.efl_error_percent, 4, "%")
+            + "<td>%s</td>" % _metric(snapshot.worst_rms_spot_um, 3, " &micro;m")
+            + "<td>%s</td>" % _metric(snapshot.worst_mtf_at_target, 4)
             + '<td class="%s">%s</td>'
             % ("ok" if snapshot.meets_requirements else "bad", requirement)
+            + '<td class="%s">%s</td>'
+            % ("ok" if snapshot.accepted else "bad", decision)
+            + "<td>%s</td>" % notes
             + "</tr>"
         )
 
     baseline = result.snapshots[0]
     final = result.snapshots[-1]
     merit_drop = 0.0
-    if baseline.merit_function:
+    if (
+        isfinite(float(baseline.merit_function))
+        and isfinite(float(final.merit_function))
+        and baseline.merit_function
+    ):
         merit_drop = 100.0 * (
             1.0 - final.merit_function / baseline.merit_function
         )
@@ -64,8 +81,8 @@ p{{color:var(--muted)}}.badge{{display:inline-block;padding:6px 10px;border:1px 
 </style></head><body><main>
 <span class="badge">{evidence}</span><span class="badge status {status_class}">{status}</span>
 <h1>{name}</h1><p>Seed-to-final staged optimization report. The source Seed was never overwritten.</p>
-<div class="grid"><div><strong>{efl:.2f} mm</strong><span>target EFL</span></div><div><strong>F/{fno:.3f}</strong><span>target aperture</span></div><div><strong>{mtf:.4f}</strong><span>final worst MTF @ {frequency:g} lp/mm</span></div><div><strong>{drop:.1f}%</strong><span>merit reduction</span></div></div>
-<div class="table"><table><thead><tr><th>Stage</th><th>Merit</th><th>Actual EFL</th><th>EFL error</th><th>Worst RMS spot</th><th>Worst MTF</th><th>Acceptance</th></tr></thead><tbody>{rows}</tbody></table></div>
+<div class="grid"><div><strong>{efl:.2f} mm</strong><span>target EFL</span></div><div><strong>F/{fno:.3f}</strong><span>target aperture</span></div><div><strong>{mtf}</strong><span>final worst MTF @ {frequency:g} lp/mm</span></div><div><strong>{drop:.1f}%</strong><span>merit reduction</span></div></div>
+<div class="table"><table><thead><tr><th>Stage</th><th>Merit</th><th>Actual EFL</th><th>EFL error</th><th>Worst RMS spot</th><th>Worst MTF</th><th>Requirements</th><th>Stage decision</th><th>Notes</th></tr></thead><tbody>{rows}</tbody></table></div>
   <div class="warning"><strong>Qualification scope:</strong> {scope_name}. A V0.1 result is not a complete UV-lens qualification.<br><strong>Acceptance checks:</strong> {checks}<br><strong>Unsupported requested requirements:</strong> {unsupported}<br><strong>Evidence boundary:</strong> {warning}</div>
 <p>Final artifact: <code>{artifact}</code></p>
 </main></body></html>""".format(
@@ -75,7 +92,7 @@ p{{color:var(--muted)}}.badge{{display:inline-block;padding:6px 10px;border:1px 
         status=escape(result.status.upper()),
         efl=config.target.focal_length_mm,
         fno=config.target.f_number,
-        mtf=final.worst_mtf_at_target,
+        mtf=_metric(final.worst_mtf_at_target, 4),
         frequency=config.analysis.mtf_frequency_lpmm,
         drop=merit_drop,
         rows="".join(rows),

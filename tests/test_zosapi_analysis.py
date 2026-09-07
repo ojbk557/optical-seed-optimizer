@@ -1,3 +1,4 @@
+import csv
 from types import SimpleNamespace
 
 import pytest
@@ -118,6 +119,66 @@ def test_mtf_analysis_interpolates_the_requested_frequency():
     assert ZosApiBackend()._worst_mtf(system, _zosapi_namespace(), 50.0) == (
         pytest.approx(0.6)
     )
+
+
+def test_mtf_export_uses_and_covers_configured_frequency(tmp_path):
+    series = SimpleNamespace(
+        XData=SimpleNamespace(Data=[0.0, 125.0, 250.0]),
+        YData=SimpleNamespace(Data=_NetMatrix([[1.0], [0.5], [0.1]])),
+    )
+    results = SimpleNamespace(NumberOfDataSeries=1, GetDataSeries=lambda index: series)
+    analysis = _Analysis(results)
+    system = SimpleNamespace(
+        Analyses=SimpleNamespace(New_FftMtf=lambda: analysis),
+    )
+    output = tmp_path / "fft_mtf.csv"
+
+    ZosApiBackend()._export_mtf_curves(
+        system, _zosapi_namespace(), output, 250.0
+    )
+
+    assert analysis.GetSettings().MaximumFrequency == 250.0
+    with output.open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    assert max(float(row["frequency_lpmm"]) for row in rows) == 250.0
+
+
+def test_mtf_export_rejects_curve_that_does_not_cover_target(tmp_path):
+    series = SimpleNamespace(
+        XData=SimpleNamespace(Data=[0.0, 100.0]),
+        YData=SimpleNamespace(Data=_NetMatrix([[1.0], [0.2]])),
+    )
+    results = SimpleNamespace(NumberOfDataSeries=1, GetDataSeries=lambda index: series)
+    analysis = _Analysis(results)
+    system = SimpleNamespace(
+        Analyses=SimpleNamespace(New_FftMtf=lambda: analysis),
+    )
+    output = tmp_path / "fft_mtf.csv"
+
+    with pytest.raises(ZosApiError, match="does not cover the target 250"):
+        ZosApiBackend()._export_mtf_curves(
+            system, _zosapi_namespace(), output, 250.0
+        )
+
+    assert not output.exists()
+
+
+def test_mtf_export_preserves_the_legacy_100_lpmm_range(tmp_path):
+    series = SimpleNamespace(
+        XData=SimpleNamespace(Data=[0.0, 50.0, 100.0]),
+        YData=SimpleNamespace(Data=_NetMatrix([[1.0], [0.5], [0.1]])),
+    )
+    results = SimpleNamespace(NumberOfDataSeries=1, GetDataSeries=lambda index: series)
+    analysis = _Analysis(results)
+    system = SimpleNamespace(
+        Analyses=SimpleNamespace(New_FftMtf=lambda: analysis),
+    )
+
+    ZosApiBackend()._export_mtf_curves(
+        system, _zosapi_namespace(), tmp_path / "fft_mtf.csv", 50.0
+    )
+
+    assert analysis.GetSettings().MaximumFrequency == 100.0
 
 
 class _Field:

@@ -93,6 +93,8 @@ seedopt run `
 
 See [docs/zosapi-setup.md](docs/zosapi-setup.md) for setup and evidence boundaries.
 
+V0.1 accepts only Seeds whose OpticStudio Lens Units are millimeters. Convert other units with OpticStudio's Scale Lens tool before running; the optimizer rejects them before reading EFL. It also rejects unsupported dependent solves in every active Lens Data Editor column, including glass and asphere parameters, before changing aperture, fields, or wavelengths. Built-in Automatic aperture sizing remains supported. Existing Variable solves are fixed at their current values and are then reintroduced only by the configured optimization stages. Checkpoints and the final delivered design must reload with matching units, EFL, and active LDE values/solve types.
+
 ## Run package
 
 Each run creates an isolated directory:
@@ -109,7 +111,7 @@ runs/<target>_<timestamp>_<nonce>/
 │   ├── ray_fan.csv
 │   └── summary.json
 ├── manifest.json          # source path, hash, target and backend
-├── result.json            # metrics and acceptance checks
+├── result.json            # metrics, analysis errors, and acceptance checks
 └── report.html
 ```
 
@@ -120,6 +122,8 @@ runs/<target>_<timestamp>_<nonce>/
 `configs/large_aperture_60mm.yaml` is an ambitious integration example: 170.14 mm EFL, F/1.547, a 20° x 20° rectangular field, 60 mm square image, 450–800 nm, and MTF evaluation at 50 lp/mm. It is a software test specification, not a claim that the included public Seed meets those requirements.
 
 V0.1 accepts infinity conjugates and centroid-referenced spot analysis only. Project and stage names must be safe single path components. Its physical qualification scope evaluates finite analyses, EFL tolerance, target-frequency FFT MTF, and required analysis exports. `v0.1-qualified` means only that this limited scope passed; it is not a complete UV-lens qualification.
+
+Checkpoint and final-design files are reloaded immediately after creation. Their Lens Units, EFL, surface types, stop flags, and every active LDE cell's value and solve type are compared with the in-memory state. A non-idempotent file aborts the run. FFT MTF exports preserve the legacy 100 lp/mm range and extend it when needed to cover the configured acceptance frequency.
 
 Distortion, relative illumination, and entrance-pupil diameter can be declared in the YAML constraints. V0.1 records them as structured `unsupported_requirements` and returns `unqualified` even when all implemented checks pass. This prevents an unimplemented requirement from being silently ignored or presented as a complete pass.
 
@@ -134,6 +138,8 @@ pytest
 ```
 
 The CI suite never requires OpticStudio or a commercial license. Real optical validation is opt-in and local.
+
+Use Python 3.10+ for modern test tooling and Python 3.12 for release builds. Python 3.8/3.9 retain compatibility pins because newer pytest/setuptools releases no longer support those interpreters; they cannot provide every modern dependency security fix. The legacy ZOS-API lane is for local trusted inputs, and pytest uses a project-local temporary directory. Release builds use hash-pinned tooling, verify tag and wheel metadata, compare two builds, and refuse to overwrite existing assets.
 
 ## License
 

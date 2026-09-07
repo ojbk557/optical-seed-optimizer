@@ -32,6 +32,14 @@ class ZosApiApplication:
         self.application = None
         self.system = None
 
+    def _close_application(self) -> None:
+        application = self.application
+        self.system = None
+        self.application = None
+        self.connection = None
+        if application is not None:
+            application.CloseApplication()
+
     def __enter__(self):
         import winreg
 
@@ -60,22 +68,27 @@ class ZosApiApplication:
         self.application = self.connection.CreateNewApplication()
         if self.application is None:
             raise ZosApiError("Unable to create ZOS-API standalone application")
-        if not self.application.IsValidLicenseForAPI:
-            status = str(self.application.LicenseStatus)
-            raise ZosApiError(
-                "OpticStudio license is not valid for API use: %s" % status
-            )
-        self.system = self.application.PrimarySystem
-        if self.system is None:
-            raise ZosApiError("ZOS-API did not provide a primary optical system")
+        try:
+            if not self.application.IsValidLicenseForAPI:
+                status = str(self.application.LicenseStatus)
+                raise ZosApiError(
+                    "OpticStudio license is not valid for API use: %s" % status
+                )
+            self.system = self.application.PrimarySystem
+            if self.system is None:
+                raise ZosApiError("ZOS-API did not provide a primary optical system")
+        except BaseException:
+            try:
+                self._close_application()
+            except Exception:
+                # Preserve the initialization error while still making a best-effort
+                # attempt to release the standalone application and license.
+                pass
+            raise
         return self
 
     def __exit__(self, exc_type, exc, traceback) -> None:
-        if self.application is not None:
-            self.application.CloseApplication()
-        self.system = None
-        self.application = None
-        self.connection = None
+        self._close_application()
 
 
 class ZosApiBackend(OptimizationBackend):
@@ -115,6 +128,8 @@ class ZosApiBackend(OptimizationBackend):
             system = app.system
             ZOSAPI = app.ZOSAPI
             system.LoadFile(str(seed_path), False)
+            self._require_millimeter_lens_units(system, ZOSAPI)
+            frozen_seed_variables = self._prepare_seed_solves(system, ZOSAPI)
             loaded_path = stage_dir / "00_loaded.zos"
             system.SaveAs(str(loaded_path))
 
@@ -137,6 +152,11 @@ class ZosApiBackend(OptimizationBackend):
                 system, ZOSAPI, config, "target_baseline", warnings
             )
             baseline.notes.append("Original Seed EFL: %.6g mm" % original_efl)
+            if frozen_seed_variables:
+                baseline.notes.append(
+                    "Fixed %d imported variable solve(s) before target configuration."
+                    % frozen_seed_variables
+                )
             snapshots.append(baseline)
             accepted_snapshot = baseline
 
@@ -144,7 +164,9 @@ class ZosApiBackend(OptimizationBackend):
                 checkpoint_path = stage_dir / (
                     "%02d_%s_checkpoint.zos" % (index, stage.name)
                 )
-                system.SaveAs(str(checkpoint_path))
+                checkpoint_state = self._save_verified_checkpoint(
+                    system, ZOSAPI, checkpoint_path
+                )
                 variable_count = self._set_variables(system, stage)
                 merit_before, merit_after, elapsed = self._optimize(
                     system, ZOSAPI, config, stage
@@ -169,7 +191,9 @@ class ZosApiBackend(OptimizationBackend):
                         "Stage rejected by physical guardrail; checkpoint restored."
                     )
                     snapshots.append(local_snapshot)
-                    system.LoadFile(str(checkpoint_path), False)
+                    self._load_verified_checkpoint(
+                        system, ZOSAPI, checkpoint_path, checkpoint_state
+                    )
                     rollback = self._snapshot(
                         system,
                         ZOSAPI,
@@ -191,7 +215,9 @@ class ZosApiBackend(OptimizationBackend):
                     hammer_checkpoint = stage_dir / (
                         "%02d_%s_pre_hammer.zos" % (index, stage.name)
                     )
-                    system.SaveAs(str(hammer_checkpoint))
+                    hammer_checkpoint_state = self._save_verified_checkpoint(
+                        system, ZOSAPI, hammer_checkpoint
+                    )
                     hammer_before, hammer_after, hammer_elapsed = self._hammer(
                         system, ZOSAPI, config, stage.hammer_seconds
                     )
@@ -216,7 +242,12 @@ class ZosApiBackend(OptimizationBackend):
                             "Hammer result rejected; pre-Hammer checkpoint restored."
                         )
                         snapshots.append(hammer_snapshot)
-                        system.LoadFile(str(hammer_checkpoint), False)
+                        self._load_verified_checkpoint(
+                            system,
+                            ZOSAPI,
+                            hammer_checkpoint,
+                            hammer_checkpoint_state,
+                        )
                         rollback = self._snapshot(
                             system,
                             ZOSAPI,
@@ -232,9 +263,13 @@ class ZosApiBackend(OptimizationBackend):
                 system.SaveAs(str(stage_dir / ("%02d_%s.zos" % (index, stage.name))))
 
             final_path = final_dir / "final_design.zos"
-            system.SaveAs(str(final_path))
+            self._save_verified_checkpoint(system, ZOSAPI, final_path)
             analysis_artifacts = self._export_final_analysis(
-                system, ZOSAPI, analysis_dir, warnings
+                system,
+                ZOSAPI,
+                analysis_dir,
+                warnings,
+                config.analysis.mtf_frequency_lpmm,
             )
 
         final = accepted_snapshot
@@ -294,6 +329,168 @@ class ZosApiBackend(OptimizationBackend):
                 0,
             )
         )
+
+    @staticmethod
+    def _require_millimeter_lens_units(system, ZOSAPI) -> None:
+        actual = system.SystemData.Units.LensUnits
+        expected = ZOSAPI.SystemData.ZemaxSystemUnits.Millimeters
+        if int(actual) != int(expected):
+            raise ZosApiError(
+                "V0.1 accepts millimeter LensUnits only; convert the Seed with "
+                "OpticStudio Scale Lens before optimization (received unit %s)"
+                % actual
+            )
+
+    @staticmethod
+    def _prescription_solve_cells(system):
+        """Visit every active LDE column, including glass and asphere parameters."""
+        for index in range(system.LDE.NumberOfSurfaces):
+            surface = system.LDE.GetSurfaceAt(index)
+            for column in range(
+                int(system.LDE.FirstColumn), int(system.LDE.LastColumn) + 1
+            ):
+                cell = surface.GetCellAt(column)
+                if cell.IsActive:
+                    yield index, str(cell.Header), cell
+
+    @staticmethod
+    def _allowed_fixed_solves(system, surface_index, cell, ZOSAPI):
+        solve_types = ZOSAPI.Editors.SolveType
+        allowed = {int(getattr(solve_types, "None")), int(solve_types.Fixed)}
+        surface = system.LDE.GetSurfaceAt(surface_index)
+        automatic_size_columns = {
+            int(surface.SemiDiameterCell.Col),
+            int(surface.ChipZoneCell.Col),
+            int(surface.MechanicalSemiDiameterCell.Col),
+        }
+        # Built-in aperture sizing is expected to follow ray footprints. Other
+        # dependent solves can silently change power, glass, or asphere data.
+        if int(cell.Col) in automatic_size_columns:
+            allowed.add(int(solve_types.Automatic))
+        return allowed
+
+    @classmethod
+    def _prepare_seed_solves(cls, system, ZOSAPI) -> int:
+        solve_types = ZOSAPI.Editors.SolveType
+        variable = int(solve_types.Variable)
+        imported_variables = 0
+        for surface_index, cell_name, cell in cls._prescription_solve_cells(system):
+            try:
+                solve_type = int(cell.GetSolveData().Type)
+            except Exception as error:
+                raise ZosApiError(
+                    "unable to audit surface %d %s solve"
+                    % (surface_index, cell_name)
+                ) from error
+            if solve_type == variable:
+                imported_variables += 1
+            elif solve_type not in cls._allowed_fixed_solves(
+                system, surface_index, cell, ZOSAPI
+            ):
+                raise ZosApiError(
+                    "surface %d %s uses unsupported dependent solve type %d; "
+                    "materialize or fix the solve before optimization"
+                    % (surface_index, cell_name, solve_type)
+                )
+
+        system.Tools.RemoveAllVariables()
+        for surface_index, cell_name, cell in cls._prescription_solve_cells(system):
+            solve_type = int(cell.GetSolveData().Type)
+            if solve_type not in cls._allowed_fixed_solves(
+                system, surface_index, cell, ZOSAPI
+            ):
+                raise ZosApiError(
+                    "surface %d %s solve type %d remained after imported variables "
+                    "were fixed"
+                    % (surface_index, cell_name, solve_type)
+                )
+        return imported_variables
+
+    def _checkpoint_state(self, system, ZOSAPI) -> Dict[str, Any]:
+        efl = self._get_efl(system, ZOSAPI)
+        cells = [[] for _ in range(system.LDE.NumberOfSurfaces)]
+        for surface_index, _, cell in self._prescription_solve_cells(system):
+            value = str(cell.Value)
+            try:
+                value = float(value)
+            except ValueError:
+                pass
+            cells[surface_index].append(
+                (int(cell.Col), int(cell.GetSolveData().Type), value)
+            )
+        surfaces = []
+        for index in range(system.LDE.NumberOfSurfaces):
+            surface = system.LDE.GetSurfaceAt(index)
+            surfaces.append(
+                (
+                    str(surface.TypeName),
+                    bool(surface.IsStop),
+                    tuple(cells[index]),
+                )
+            )
+        return {
+            "lens_units": int(system.SystemData.Units.LensUnits),
+            "efl": efl,
+            "surfaces": tuple(surfaces),
+        }
+
+    @staticmethod
+    def _same_number(left: float, right: float) -> bool:
+        if math.isinf(left) or math.isinf(right):
+            return left == right
+        return math.isfinite(left) and math.isfinite(right) and math.isclose(
+            left, right, rel_tol=1e-9, abs_tol=1e-9
+        )
+
+    @classmethod
+    def _assert_checkpoint_state(
+        cls, expected: Dict[str, Any], actual: Dict[str, Any], path: Path
+    ) -> None:
+        if expected["lens_units"] != actual["lens_units"]:
+            raise ZosApiError("checkpoint reload changed LensUnits: %s" % path)
+        if not cls._same_number(expected["efl"], actual["efl"]):
+            raise ZosApiError(
+                "checkpoint reload changed effective focal length: %s" % path
+            )
+        expected_surfaces = expected["surfaces"]
+        actual_surfaces = actual["surfaces"]
+        if len(expected_surfaces) != len(actual_surfaces):
+            raise ZosApiError("checkpoint reload changed surface count: %s" % path)
+        for index, (before, after) in enumerate(
+            zip(expected_surfaces, actual_surfaces)
+        ):
+            equal = before[:2] == after[:2] and len(before[2]) == len(after[2])
+            for left, right in zip(before[2], after[2]):
+                if left[:2] != right[:2]:
+                    equal = False
+                elif isinstance(left[2], float) and isinstance(right[2], float):
+                    equal = equal and cls._same_number(left[2], right[2])
+                else:
+                    equal = equal and left[2] == right[2]
+            if not equal:
+                raise ZosApiError(
+                    "checkpoint reload changed prescription at surface %d: %s"
+                    % (index, path)
+                )
+
+    def _save_verified_checkpoint(self, system, ZOSAPI, path: Path) -> Dict[str, Any]:
+        expected = self._checkpoint_state(system, ZOSAPI)
+        system.SaveAs(str(path))
+        system.LoadFile(str(path), False)
+        actual = self._checkpoint_state(system, ZOSAPI)
+        self._assert_checkpoint_state(expected, actual, path)
+        return actual
+
+    def _load_verified_checkpoint(
+        self,
+        system,
+        ZOSAPI,
+        path: Path,
+        expected: Dict[str, Any],
+    ) -> None:
+        system.LoadFile(str(path), False)
+        actual = self._checkpoint_state(system, ZOSAPI)
+        self._assert_checkpoint_state(expected, actual, path)
 
     @staticmethod
     def _scale(system, factor: float) -> None:
@@ -472,14 +669,19 @@ class ZosApiBackend(OptimizationBackend):
         )
         feasible = math.isfinite(merit) and math.isfinite(efl)
         notes: List[str] = []
+        analysis_errors: Dict[str, Dict[str, str]] = {}
         try:
             worst_spot = self._worst_rms_spot(system, ZOSAPI)
         except Exception as error:
-            worst_spot = float("inf")
+            worst_spot = None
             feasible = False
             message = "%s spot analysis failed: %s" % (label, error)
             warnings.append(message)
             notes.append(message)
+            analysis_errors["spot"] = {
+                "error_type": type(error).__name__,
+                "message": str(error),
+            }
         try:
             worst_mtf = self._worst_mtf(
                 system, ZOSAPI, config.analysis.mtf_frequency_lpmm
@@ -490,6 +692,10 @@ class ZosApiBackend(OptimizationBackend):
             message = "%s MTF analysis failed: %s" % (label, error)
             warnings.append(message)
             notes.append(message)
+            analysis_errors["mtf"] = {
+                "error_type": type(error).__name__,
+                "message": str(error),
+            }
         if worst_mtf < config.analysis.minimum_mtf:
             notes.append(
                 "MTF %.4f is below target %.4f"
@@ -515,16 +721,21 @@ class ZosApiBackend(OptimizationBackend):
             feasible=feasible,
             meets_requirements=meets_requirements,
             notes=notes,
+            analysis_errors=analysis_errors,
         )
 
     def _export_final_analysis(
-        self, system, ZOSAPI, analysis_dir: Path, warnings: List[str]
+        self,
+        system,
+        ZOSAPI,
+        analysis_dir: Path,
+        warnings: List[str],
+        mtf_frequency_lpmm: float,
     ) -> Dict[str, str]:
         artifacts: Dict[str, str] = {}
         jobs = (
             ("surface_table", self._export_surface_table, "surface_table.csv"),
             ("spot_table", self._export_spot_table, "spot_rms.csv"),
-            ("mtf_curves", self._export_mtf_curves, "fft_mtf.csv"),
             ("ray_fan", self._export_ray_fan, "ray_fan.csv"),
         )
         for label, exporter, filename in jobs:
@@ -534,6 +745,14 @@ class ZosApiBackend(OptimizationBackend):
                 artifacts[label] = str(path)
             except Exception as error:
                 warnings.append("%s export failed: %s" % (label, error))
+        mtf_path = analysis_dir / "fft_mtf.csv"
+        try:
+            self._export_mtf_curves(
+                system, ZOSAPI, mtf_path, mtf_frequency_lpmm
+            )
+            artifacts["mtf_curves"] = str(mtf_path)
+        except Exception as error:
+            warnings.append("mtf_curves export failed: %s" % error)
         return artifacts
 
     @staticmethod
@@ -598,30 +817,72 @@ class ZosApiBackend(OptimizationBackend):
         finally:
             analysis.Close()
 
-    def _export_mtf_curves(self, system, ZOSAPI, path: Path) -> None:
+    def _export_mtf_curves(
+        self,
+        system,
+        ZOSAPI,
+        path: Path,
+        target_frequency_lpmm: float,
+    ) -> None:
         analysis = system.Analyses.New_FftMtf()
         try:
             settings = analysis.GetSettings()
-            settings.MaximumFrequency = 100.0
+            settings.MaximumFrequency = max(100.0, float(target_frequency_lpmm))
             settings.SampleSize = ZOSAPI.Analysis.SampleSizes.S_128x128
             settings.ShowDiffractionLimit = False
             analysis.ApplyAndWaitForCompletion()
             results = analysis.GetResults()
+            export_rows = []
+            tolerance = max(1e-9, abs(target_frequency_lpmm) * 1e-9)
+            for series_index in range(results.NumberOfDataSeries):
+                series = results.GetDataSeries(series_index)
+                x_values = [float(value) for value in series.XData.Data]
+                if not x_values:
+                    raise ZosApiError("FFT MTF export returned an empty frequency axis")
+                if any(not math.isfinite(value) for value in x_values) or any(
+                    right <= left for left, right in zip(x_values, x_values[1:])
+                ):
+                    raise ZosApiError(
+                        "FFT MTF export returned non-finite or non-increasing frequencies"
+                    )
+                if (
+                    target_frequency_lpmm < x_values[0] - tolerance
+                    or target_frequency_lpmm > x_values[-1] + tolerance
+                ):
+                    raise ZosApiError(
+                        "FFT MTF export range %.6g..%.6g lp/mm does not cover "
+                        "the target %.6g lp/mm"
+                        % (
+                            x_values[0],
+                            x_values[-1],
+                            target_frequency_lpmm,
+                        )
+                    )
+                y_raw = series.YData.Data
+                curves = self._reshape_net(
+                    y_raw, y_raw.GetLength(0), y_raw.GetLength(1)
+                )
+                if not curves:
+                    raise ZosApiError("FFT MTF export returned no curves")
+                for curve_index, curve in enumerate(curves):
+                    if len(curve) != len(x_values):
+                        raise ZosApiError(
+                            "FFT MTF export curve length does not match its frequency axis"
+                        )
+                    for frequency, value in zip(x_values, curve):
+                        if not math.isfinite(value) or not 0 <= value <= 1:
+                            raise ZosApiError(
+                                "FFT MTF export returned a non-finite or out-of-range value"
+                            )
+                        export_rows.append(
+                            [series_index, curve_index, frequency, value]
+                        )
+            if not export_rows:
+                raise ZosApiError("FFT MTF export returned no data")
             with path.open("w", newline="", encoding="utf-8") as handle:
                 writer = csv.writer(handle)
                 writer.writerow(["series", "curve", "frequency_lpmm", "mtf"])
-                for series_index in range(results.NumberOfDataSeries):
-                    series = results.GetDataSeries(series_index)
-                    x_values = [float(value) for value in series.XData.Data]
-                    y_raw = series.YData.Data
-                    curves = self._reshape_net(
-                        y_raw, y_raw.GetLength(0), y_raw.GetLength(1)
-                    )
-                    for curve_index, curve in enumerate(curves):
-                        for frequency, value in zip(x_values, curve):
-                            writer.writerow(
-                                [series_index, curve_index, frequency, value]
-                            )
+                writer.writerows(export_rows)
         finally:
             analysis.Close()
 
